@@ -1,0 +1,33 @@
+project_name: downloader
+env:
+  - GO111MODULE=on
+  - CGO_ENABLED=1
+before:
+  hooks:
+    - go mod tidy
+    #- go generate ./...
+builds:
+  - id: linux
+    binary: downloader-linux-{{ .Arch }}
+    no_unique_dist_dir: true
+    main: ./
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos:
+      - linux
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=0
+checksum:
+  name_template: "checksums.txt"
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^mock:"

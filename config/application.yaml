@@ -1,0 +1,12 @@
+port: 1944
+ip: 127.0.0.1
+server_cert: ""
+max_concurrent_downloads: 1
+download_directory: "/tmp"
+metadata_directory: "/tmp"
+log_directory: "/tmp"
+log_config_file: ""
+fragments: 4
+retries: 1
+filemode: 0644
+buffer_size: 4096

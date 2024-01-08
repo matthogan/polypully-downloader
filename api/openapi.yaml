@@ -1,0 +1,183 @@
+openapi: "3.0.0"
+info:
+  version: 1.0.0
+  title: Artefact Download Service API
+
+servers:
+  - url: https://api.polypully.com/v1
+
+paths:
+  /downloads:
+    get:
+      summary: List all ongoing downloads
+      responses:
+        "200":
+          description: A list of downloads
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DownloadStatus"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    post:
+      summary: Request a new download
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownloadRequest"
+      responses:
+        "202":
+          description: Accepted
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the operation status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /downloads/{downloadId}:
+    patch:
+      summary: Update a download
+      parameters:
+        - name: downloadId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownloadUpdate"
+      responses:
+        "202":
+          description: Accepted
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the operation status
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    get:
+      summary: Get the current status of a download
+      parameters:
+        - name: downloadId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current status of the download
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+components:
+  schemas:
+    DownloadRequest:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+          description: The URL of the artefact to be downloaded
+          minLength: 1
+          maxLength: 2048
+
+    DownloadResponse:
+      type: object
+      properties:
+        downloadId:
+          type: string
+          description: The ID of the download, used to reference it in subsequent calls
+
+    DownloadUpdate:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [pause, resume, cancel]
+          description: The action to be performed on the download
+
+    DownloadStatus:
+      type: object
+      properties:
+        downloadId:
+          type: string
+          description: The ID of the download
+        url:
+          type: string
+          description: The URL of the artefact being downloaded
+        bytesDownloaded:
+          type: integer
+          minimum: 0
+          description: The number of bytes that have been downloaded so far
+        totalSize:
+          type: integer
+          minimum: 0
+          description: The total size of the artefact being downloaded
+        status:
+          type: string
+          enum: [pending, downloading, paused, completed, cancelled]
+          description: The current status of the download
+        speed:
+          type: number
+          minimum: 0
+          description: The current download speed in bytes per second
+        remainingTime:
+          type: integer
+          minimum: 0
+          description: The estimated remaining time in seconds
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+
+  responses:
+    BadRequest:
+      description: The request could not be understood or was missing required parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: Too many requests were made in a given amount of time
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
