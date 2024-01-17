@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
 	"strconv"
+	"sync"
 
 	apperrors "github.com/codejago/polypully/downloader/internal/app/errors"
 )
@@ -18,19 +20,20 @@ type CommunicationClient interface {
 }
 
 type Download struct {
-	Id          string
-	Client      CommunicationClient
-	File        *os.File
-	Uri         string
-	Destination string
-	Fragments   int
-	Retries     int
-	FileMode    fs.FileMode
-	Status      DownloadStatus
-	Error       error
-	Context     context.Context
-	Cancel      func()
-	BufferSize  int
+	Id            string
+	Client        CommunicationClient
+	File          *os.File
+	Uri           string
+	Destination   string
+	Fragments     int
+	MinFragmentSz int
+	Retries       int
+	FileMode      fs.FileMode
+	Status        DownloadStatus
+	Error         error
+	Context       context.Context
+	Cancel        func()
+	BufferSize    int
 }
 
 type Fragment struct {
@@ -84,7 +87,7 @@ func (d *Download) GetFileSize() (int64, error) {
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("http request error: %s", resp.Status)
 	}
-	size, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
+	size, err := strconv.ParseInt(resp.Header.Get("content-length"), 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse content-length header: %v", err)
 	}
@@ -110,19 +113,19 @@ func (d *Download) GetFilename() string {
 	return path
 }
 
-func (d *Download) InitializeFile(filename string, size int64) error {
+func (d *Download) InitializeFile(filename string) error {
 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, d.FileMode)
 	if err != nil {
 		return err
 	}
-	if err := file.Truncate(size); err != nil {
+	if err := file.Truncate(0); err != nil {
 		return err
 	}
 	d.File = file
 	return nil
 }
 
-func (d *Download) InitializeFragmentFile(filename string, size int64) (*os.File, error) {
+func (d *Download) InitializeFragmentFile(filename string) (*os.File, error) {
 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, d.FileMode)
 	if err != nil {
 		return nil, err
@@ -136,10 +139,72 @@ func (d *Download) MergeFile(fragmentFilename string) error {
 		return err
 	}
 	defer fragmentFile.Close()
+	// end of the file
+	_, err = d.File.Seek(0, io.SeekEnd)
+	if err != nil {
+		return err
+	}
+	// append the data
 	_, err = io.Copy(d.File, fragmentFile)
 	return err
 }
 
 func (d *Download) GetFragmentFilename(filename string, i int64) string {
 	return filename + "." + strconv.FormatInt(i, 10)
+}
+
+func (d *Download) MergeFiles(filename string) error {
+	for i := int64(0); i < int64(d.Fragments); i++ {
+		fragment := d.GetFragmentFilename(filename, i)
+		err := d.MergeFile(fragment)
+		if err != nil {
+			return err
+		}
+		// err = os.Remove(fragment)
+		// if err != nil {
+		// 	return err
+		// }
+	}
+	return nil
+}
+
+func (d *Download) DownloadFragments(fragmentSize int64, filename string, size int64) chan error {
+	errChan := make(chan error, d.Fragments)
+	var wg sync.WaitGroup
+
+	for i := int64(0); i < int64(d.Fragments); i++ {
+		wg.Add(1)
+		go func(i int64) {
+			defer wg.Done()
+			err := d.DownloadSingleFragment(i, fragmentSize, filename, size)
+			if err != nil {
+				errChan <- err
+				d.CancelDownload(filename)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errChan)
+	return errChan
+}
+
+func (d *Download) DownloadSingleFragment(i, fragmentSize int64, filename string, size int64) error {
+	start := i * fragmentSize
+	end := start + fragmentSize - 1
+	if i == int64(d.Fragments)-1 {
+		end = size - 1
+	}
+	fragmentFilename := d.GetFragmentFilename(filename, i)
+	file, err := d.InitializeFragmentFile(fragmentFilename)
+	if err != nil {
+		slog.Error("initialize", "fragmentFilename", fragmentFilename, "error", err)
+	}
+	defer file.Close()
+	fragment := Fragment{
+		Destination: file,
+		Start:       start,
+		End:         end, // -1 possibly
+	}
+	return d.Client.FetchData(*d, fragment)
 }

@@ -65,7 +65,7 @@ func (s *DownloaderApiService) DownloadsGet(ctx context.Context) (openapi.ImplRe
 		}
 	}
 	if len(statuses) == 0 {
-		return openapi.Response(http.StatusNotFound, statuses), nil
+		return openapi.Response(http.StatusNoContent, nil), nil
 	}
 	return openapi.Response(http.StatusOK, statuses), nil
 }

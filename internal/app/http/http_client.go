@@ -24,16 +24,18 @@ func (h *HttpClient) FetchData(d Download, fragment Fragment) error {
 		slog.Error("request", "error", err)
 		return err
 	}
-	rangeHeader := "bytes=" + strconv.FormatInt(fragment.Start, 10) + "-" + strconv.FormatInt(fragment.End, 10)
-	slog.Debug("rangeHeader", "rangeHeader", rangeHeader)
-	req.Header.Add("Range", rangeHeader)
+	if d.Fragments > 1 && fragment.End > fragment.Start {
+		rangeHeader := "bytes=" + strconv.FormatInt(fragment.Start, 10) + "-" + strconv.FormatInt(fragment.End, 10)
+		slog.Debug("rangeHeader", "rangeHeader", rangeHeader)
+		req.Header.Add("Range", rangeHeader)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		slog.Error("download", "error", err)
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusPartialContent {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		slog.Error("download", "error", err, "status", resp.StatusCode)
 		return err
 	}

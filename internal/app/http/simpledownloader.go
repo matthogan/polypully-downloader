@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"sync"
 
 	"github.com/google/uuid"
 	"github.com/spf13/viper"
@@ -17,14 +16,15 @@ func NewDownload(uri string) Download {
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx = context.WithValue(ctx, ContextKey("download_id"), id)
 	return Download{
-		Id:          id,
-		Client:      NewHttpClient(),
-		Uri:         uri,
-		Destination: viper.GetString("download_directory"),
-		Fragments:   viper.GetInt("fragments"),
-		Retries:     viper.GetInt("retries"),
-		FileMode:    fs.FileMode(viper.GetUint32("filemode")),
-		Context:     ctx,
+		Id:            id,
+		Client:        NewHttpClient(),
+		Uri:           uri,
+		Destination:   viper.GetString("download_directory"),
+		Fragments:     viper.GetInt("fragments"),
+		MinFragmentSz: viper.GetInt("min_fragment_size"),
+		Retries:       viper.GetInt("retries"),
+		FileMode:      fs.FileMode(viper.GetUint32("filemode")),
+		Context:       ctx,
 		Cancel: func() {
 			slog.Info("cancelling", "id", ctx.Value(ContextKey("download_id")))
 			cancel()
@@ -45,45 +45,26 @@ func (d *Download) Download() error {
 	slog.Info("download", "filename", filename)
 	size, err := d.GetFileSize()
 	if err != nil {
-		slog.Error("file size", "error", err)
-		d.Status = DownloadError
-		return err
+		slog.Error("file size", "error", err) // content-length is not always present
 	}
 
 	fragmentSize := size
-	if size < int64(d.Fragments) {
+	if size <= int64(d.MinFragmentSz) { // may be 0
 		d.Fragments = 1
 	} else {
 		fragmentSize = size / int64(d.Fragments)
 	}
 	slog.Info("download", "fragmentSize", fragmentSize)
 
-	err = d.InitializeFile(filename, size)
-	if err != nil {
+	if err = d.InitializeFile(filename); err != nil {
 		slog.Error("initialize", "filename", filename, "error", err)
+		return err
 	}
 	defer d.File.Close()
 
 	for r := 0; r <= d.Retries; r++ {
-		errChan := make(chan error, d.Fragments)
-		var wg sync.WaitGroup
-
-		for i := int64(0); i < int64(d.Fragments); i++ {
-			wg.Add(1)
-			go func(i int64) {
-				defer wg.Done()
-				err := d.downloadSingleFragment(i, fragmentSize, filename, size)
-				if err != nil {
-					errChan <- err
-					d.CancelDownload(filename)
-				}
-			}(i)
-		}
-
-		wg.Wait()
-		close(errChan)
-
-		for err := range errChan {
+		errorChannel := d.DownloadFragments(fragmentSize, filename, size)
+		for err := range errorChannel {
 			if err != nil {
 				slog.Error("download", "filename", filename, "error", err)
 				if r < d.Retries {
@@ -95,17 +76,14 @@ func (d *Download) Download() error {
 			}
 		}
 
-		for i := int64(0); i < int64(d.Fragments); i++ {
-			err := d.MergeFile(d.GetFragmentFilename(filename, i))
-			if err != nil {
-				slog.Error("merge", "filename", filename, "error", err)
-				if r < d.Retries {
-					slog.Info("retry", "filename", filename, "retry", r, "retries", d.Retries)
-					continue
-				}
-				d.Status = DownloadError
-				return errors.New("failed in merge")
+		if err = d.MergeFiles(filename); err != nil {
+			slog.Error("merge", "filename", filename, "error", err)
+			if r < d.Retries {
+				slog.Info("retry", "filename", filename, "retry", r, "retries", d.Retries)
+				continue
 			}
+			d.Status = DownloadError
+			return errors.New("failed in merge")
 		}
 
 		slog.Info("complete", "filename", filename)
@@ -114,24 +92,4 @@ func (d *Download) Download() error {
 	}
 
 	return nil
-}
-
-func (d *Download) downloadSingleFragment(i, fragmentSize int64, filename string, size int64) error {
-	start := i * fragmentSize
-	end := start + fragmentSize - 1
-	if i == int64(d.Fragments)-1 {
-		end = size - 1
-	}
-	fragmentFilename := d.GetFragmentFilename(filename, i)
-	file, err := d.InitializeFragmentFile(fragmentFilename, end-start)
-	if err != nil {
-		slog.Error("initialize", "fragmentFilename", fragmentFilename, "error", err)
-	}
-	defer file.Close()
-	fragment := Fragment{
-		Destination: file,
-		Start:       start,
-		End:         end,
-	}
-	return d.Client.FetchData(*d, fragment)
 }

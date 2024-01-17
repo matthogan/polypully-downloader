@@ -9,7 +9,7 @@
             "type": "go",
             "request": "launch",
             "mode": "debug",
-            "program": "${fileDirname}",
+            "program": "main.go",
             "args": ["start", "-p", "8080"],
             "showLog": true
         }

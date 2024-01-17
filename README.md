@@ -16,9 +16,13 @@ It will not not resume downloads after a restart.
 
 Exposes a simple REST API defined as an OpenAPI specification.
 
+## API
+
+[OpenAPI Spec](/api/openapi.yaml)
+
 ## Building
 
-https://goreleaser.com/
+<https://goreleaser.com/>
 
 ```shell
 brew install goreleaser make

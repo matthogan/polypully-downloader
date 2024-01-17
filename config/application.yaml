@@ -7,6 +7,7 @@ metadata_directory: "/tmp"
 log_directory: "/tmp"
 log_config_file: ""
 fragments: 4
+min_fragment_size: 1000000
 retries: 1
 filemode: 0644
 buffer_size: 4096
