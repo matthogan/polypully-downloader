@@ -75,12 +75,10 @@ func (s *DownloaderApiService) DownloadsPost(ctx context.Context, downloadReques
 	download := http_downloads.NewDownload(downloadRequest.Url)
 	err := download.Download()
 	if err != nil {
-		if e, ok := err.(*apperrors.ValidationError); ok {
-			return openapi.Response(http.StatusBadRequest, openapi.Error{
-				Message: e.Error(),
-			}), nil
+		if e, ok := err.(*apperrors.ValidationError); ok { // this idiom can be hard to read
+			return openapi.Response(http.StatusBadRequest, nil), e
 		}
-		return openapi.Response(http.StatusInternalServerError, nil), errors.New(err.Error())
+		return openapi.Response(http.StatusInternalServerError, nil), err
 	}
 	s.downloads[download.Id] = download
 	return openapi.Response(http.StatusOK, openapi.DownloadStatus{

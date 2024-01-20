@@ -1,6 +1,7 @@
 package http
 
 import (
+	"container/list"
 	"context"
 	"fmt"
 	"io"
@@ -30,7 +31,7 @@ type Download struct {
 	Retries       int
 	FileMode      fs.FileMode
 	Status        DownloadStatus
-	Error         error
+	Errors        list.List
 	Context       context.Context
 	Cancel        func()
 	BufferSize    int
@@ -52,13 +53,61 @@ const (
 	DownloadError
 )
 
+// String method is automatically called when we try to print the value of the DownloadStatus
+func (d DownloadStatus) String() string {
+	return [...]string{"undefined", "running", "complete", "error"}[d]
+}
+
 type ContextKey string
+
+func (d *Download) downloadRoutine(fragmentSize int64, filename string, size int64) {
+
+	if err := d.InitializeFile(filename); err != nil {
+		d.Status = DownloadError
+		d.Errors.PushFront(err)
+		slog.Error("failed in initialize %s", d.Status)
+		return
+	}
+	defer d.File.Close()
+
+	for r := 0; r <= d.Retries; r++ {
+		errorChannel := d.DownloadFragments(fragmentSize, filename, size)
+		for err := range errorChannel {
+			if err != nil {
+				slog.Error("download", "filename", filename, "error", err)
+				if r < d.Retries {
+					slog.Info("retry", "filename", filename, "retry", r, "retries", d.Retries)
+					continue
+				}
+				d.Status = DownloadError
+				d.Errors.PushFront(err)
+				slog.Error("failed in download %s", DownloadError)
+			}
+		}
+
+		if err := d.MergeFiles(filename); err != nil {
+			slog.Debug("merge", "filename", filename, "error", err)
+			if r < d.Retries {
+				slog.Info("retry", "filename", filename, "retry", r, "retries", d.Retries)
+				continue
+			}
+			d.Status = DownloadError
+			d.Errors.PushFront(err)
+			slog.Error("failed in merge %s", DownloadError)
+		}
+
+		slog.Info("complete", "filename", filename)
+		d.Status = DownloadComplete
+	}
+}
 
 // cleanup in case of error
 func (d *Download) CancelDownload(filename string) {
 	d.Cancel()
 	if d.Status == DownloadError {
-		os.Remove(filename)
+		if err := os.Remove(filename); err != nil {
+			slog.Error("remove failed", "filename", filename, "error", err)
+		}
 	}
 }
 
@@ -160,10 +209,10 @@ func (d *Download) MergeFiles(filename string) error {
 		if err != nil {
 			return err
 		}
-		// err = os.Remove(fragment)
-		// if err != nil {
-		// 	return err
-		// }
+		err = os.Remove(fragment)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

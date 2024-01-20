@@ -1,8 +1,8 @@
 package http
 
 import (
+	"container/list"
 	"context"
-	"errors"
 	"io/fs"
 
 	"github.com/google/uuid"
@@ -25,27 +25,29 @@ func NewDownload(uri string) Download {
 		Retries:       viper.GetInt("retries"),
 		FileMode:      fs.FileMode(viper.GetUint32("filemode")),
 		Context:       ctx,
+		BufferSize:    viper.GetInt("buffer_size"),
+		Errors:        *list.New(),
 		Cancel: func() {
 			slog.Info("cancelling", "id", ctx.Value(ContextKey("download_id")))
 			cancel()
 		},
-		BufferSize: viper.GetInt("buffer_size"),
 	}
 }
 
 func (d *Download) Download() error {
-	d.Status = DownloadRunning
 	if err := d.Validate(); err != nil {
 		slog.Error("validate", "error", err)
 		d.Status = DownloadError
 		return err
 	}
+	d.Status = DownloadRunning
 
 	filename := d.GetFilename() // fqfn
-	slog.Info("download", "filename", filename)
+	slog.Debug("download", "filename", filename)
 	size, err := d.GetFileSize()
 	if err != nil {
-		slog.Error("file size", "error", err) // content-length is not always present
+		slog.Info("file size", "error", err) // content-length is not always present
+		err = nil
 	}
 
 	fragmentSize := size
@@ -54,42 +56,9 @@ func (d *Download) Download() error {
 	} else {
 		fragmentSize = size / int64(d.Fragments)
 	}
-	slog.Info("download", "fragmentSize", fragmentSize)
+	slog.Debug("download", "fragmentSize", fragmentSize)
 
-	if err = d.InitializeFile(filename); err != nil {
-		slog.Error("initialize", "filename", filename, "error", err)
-		return err
-	}
-	defer d.File.Close()
+	go d.downloadRoutine(fragmentSize, filename, size)
 
-	for r := 0; r <= d.Retries; r++ {
-		errorChannel := d.DownloadFragments(fragmentSize, filename, size)
-		for err := range errorChannel {
-			if err != nil {
-				slog.Error("download", "filename", filename, "error", err)
-				if r < d.Retries {
-					slog.Info("retry", "filename", filename, "retry", r, "retries", d.Retries)
-					continue
-				}
-				d.Status = DownloadError
-				return errors.New("failed in download")
-			}
-		}
-
-		if err = d.MergeFiles(filename); err != nil {
-			slog.Error("merge", "filename", filename, "error", err)
-			if r < d.Retries {
-				slog.Info("retry", "filename", filename, "retry", r, "retries", d.Retries)
-				continue
-			}
-			d.Status = DownloadError
-			return errors.New("failed in merge")
-		}
-
-		slog.Info("complete", "filename", filename)
-		d.Status = DownloadComplete
-		return nil
-	}
-
-	return nil
+	return err
 }
