@@ -24,13 +24,13 @@ import (
 // This service should implement the business logic for every endpoint for the DefaultApi API.
 // Include any external packages or services that will be required by this service.
 type DownloaderApiService struct {
-	downloads map[string]http_downloads.Download
+	downloads map[string]*http_downloads.Download
 }
 
 // NewApiService creates a downloader api service
 func NewApiService() openapi.DefaultApiServicer {
 	return &DownloaderApiService{
-		downloads: make(map[string]http_downloads.Download),
+		downloads: make(map[string]*http_downloads.Download),
 	}
 }
 
@@ -43,7 +43,8 @@ func (s *DownloaderApiService) DownloadsDownloadIdGet(ctx context.Context, downl
 	return openapi.Response(http.StatusOK, openapi.DownloadStatus{
 		DownloadId: download.Id,
 		Url:        download.Uri,
-		Status:     fmt.Sprintf("%d", download.Status),
+		Status:     fmt.Sprintf("%s", download.Status),
+		ElapsedMS:  download.GetElapsedMS(),
 	}), nil
 }
 
@@ -56,13 +57,15 @@ func (s *DownloaderApiService) DownloadsDownloadIdPatch(ctx context.Context, dow
 func (s *DownloaderApiService) DownloadsGet(ctx context.Context) (openapi.ImplResponse, error) {
 	var statuses []openapi.DownloadStatus
 	for _, download := range s.downloads {
-		if download.Status == http_downloads.DownloadRunning {
-			statuses = append(statuses, openapi.DownloadStatus{
-				DownloadId: download.Id,
-				Url:        download.Uri,
-				Status:     fmt.Sprintf("%d", download.Status),
-			})
-		}
+		// if download.Status == http_downloads.DownloadRunning {
+		statuses = append(statuses, openapi.DownloadStatus{
+			DownloadId: download.Id,
+			Url:        download.Uri,
+			Status:     fmt.Sprintf("%s", download.Status),
+			ElapsedMS:  download.GetElapsedMS(),
+			Progress:   download.GetProgess(),
+		})
+		// }
 	}
 	if len(statuses) == 0 {
 		return openapi.Response(http.StatusNoContent, nil), nil
@@ -80,10 +83,10 @@ func (s *DownloaderApiService) DownloadsPost(ctx context.Context, downloadReques
 		}
 		return openapi.Response(http.StatusInternalServerError, nil), err
 	}
-	s.downloads[download.Id] = download
+	s.downloads[download.Id] = &download
 	return openapi.Response(http.StatusOK, openapi.DownloadStatus{
 		DownloadId: download.Id,
 		Url:        download.Uri,
-		Status:     fmt.Sprintf("%d", download.Status),
+		Status:     fmt.Sprintf("%s", download.Status),
 	}), nil
 }

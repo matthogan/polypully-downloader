@@ -9,8 +9,10 @@ log_config_file: ""
 # + intelligent ie factor by size, max concurrent downloads
 # make it a max fragments per file, and increase the number of fragments by size of target file
 # files with no content-length header will be downloaded in one fragment
-fragments: 4
+max_fragments: 4
 min_fragment_size: 1000000
 retries: 1
 filemode: 0644
-buffer_size: 4096
+buffer_size: 81920
+timeout: 0s
+redirects: 5

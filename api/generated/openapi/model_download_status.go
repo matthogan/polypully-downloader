@@ -26,11 +26,11 @@ type DownloadStatus struct {
 	// The current status of the download
 	Status string `json:"status,omitempty"`
 
-	// The current download speed in bytes per second
-	Speed float32 `json:"speed,omitempty"`
+	// The number of milliseconds that have elapsed since the download started
+	ElapsedMS int64 `json:"elapsedMS,omitempty"`
 
-	// The estimated remaining time in seconds
-	RemainingTime int32 `json:"remainingTime,omitempty"`
+	// The percentage of the download that has been completed, if known
+	Progress int64 `json:"progress,omitempty"`
 }
 
 // AssertDownloadStatusRequired checks if the required fields are not zero-ed
