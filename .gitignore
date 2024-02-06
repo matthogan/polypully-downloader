@@ -34,3 +34,6 @@ build/*
 
 # sonar
 .scannerwork
+
+# misc
+.trash

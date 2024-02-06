@@ -18,18 +18,25 @@ import (
 	"github.com/codejago/polypully/downloader/api/generated/openapi"
 	apperrors "github.com/codejago/polypully/downloader/internal/app/errors"
 	http_downloads "github.com/codejago/polypully/downloader/internal/app/http"
+	appevents "github.com/matthogan/polypully-events"
 )
+
+type ServiceConfig struct {
+	events *appevents.Events
+}
 
 // DownloaderApiService is a service that implements the logic for the DefaultApiServicer
 // This service should implement the business logic for every endpoint for the DefaultApi API.
 // Include any external packages or services that will be required by this service.
 type DownloaderApiService struct {
 	downloads map[string]*http_downloads.Download
+	events    appevents.EventsApi
 }
 
 // NewApiService creates a downloader api service
-func NewApiService() openapi.DefaultApiServicer {
+func NewApiService(events appevents.EventsApi) openapi.DefaultApiServicer {
 	return &DownloaderApiService{
+		events:    events,
 		downloads: make(map[string]*http_downloads.Download),
 	}
 }
@@ -75,8 +82,9 @@ func (s *DownloaderApiService) DownloadsGet(ctx context.Context) (openapi.ImplRe
 
 // DownloadsPost - Request a new download
 func (s *DownloaderApiService) DownloadsPost(ctx context.Context, downloadRequest openapi.DownloadRequest) (openapi.ImplResponse, error) {
-	download := http_downloads.NewDownload(downloadRequest.Url)
+	download := http_downloads.NewDownload(downloadRequest.Url, s.events)
 	err := download.Download()
+	s.events.Notify(appevents.NewDownloadEvent(download.Status.String(), download.Id))
 	if err != nil {
 		if e, ok := err.(*apperrors.ValidationError); ok { // this idiom can be hard to read
 			return openapi.Response(http.StatusBadRequest, nil), e

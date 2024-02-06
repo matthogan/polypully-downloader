@@ -6,13 +6,15 @@ import (
 	"io/fs"
 	"sync"
 
+	appevents "github.com/matthogan/polypully-events"
+
 	"github.com/google/uuid"
 	"github.com/spf13/viper"
 	"golang.org/x/exp/slog"
 )
 
 // Download represents a download and is cancellable
-func NewDownload(uri string) Download {
+func NewDownload(uri string, events appevents.EventsApi) Download {
 	id := uuid.New().String()
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx = context.WithValue(ctx, ContextKey("download_id"), id)
@@ -36,10 +38,12 @@ func NewDownload(uri string) Download {
 		},
 		Fragments: make(map[int]*Fragment),
 		fragLock:  &sync.RWMutex{},
+		events:    events,
 	}
 }
 
 func (d *Download) Download() error {
+
 	d.Status = DownloadInitialising
 	if err := d.Validate(); err != nil {
 		slog.Error("validate", "error", err)

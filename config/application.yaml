@@ -2,9 +2,12 @@ port: 1944
 ip: 127.0.0.1
 server_cert: ""
 max_concurrent_downloads: 1
+# the downloaded file is saved to this directory before moving to final path
 download_directory: "/tmp"
-metadata_directory: "/tmp"
-log_directory: "/tmp"
+# the downloaded file is moved to this directory after download
+final_path: "${filename}/${host}/${id}"
+metadata_directory: ".metadata"
+log_directory: "/var/log"
 log_config_file: ""
 # + intelligent ie factor by size, max concurrent downloads
 # make it a max fragments per file, and increase the number of fragments by size of target file
@@ -16,3 +19,12 @@ filemode: 0644
 buffer_size: 81920
 timeout: 0s
 redirects: 5
+
+#
+# kafka config
+kafka_bootstrap_servers: localhost:9092
+kafka_client_id: "download-client-0"
+kafka_topic: "download"
+kafka_producer_id: "download-producer-0"
+# kafka_config: 
+#   acks: 1

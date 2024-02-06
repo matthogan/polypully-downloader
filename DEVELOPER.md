@@ -2,6 +2,12 @@
 
 ## Prereqs
 
+Kafka requirement:-
+
+```shell
+$ apt install build-essential pkg-config
+```
+
 To enable compilation, install the following package for the test files:-
 
 ```shell

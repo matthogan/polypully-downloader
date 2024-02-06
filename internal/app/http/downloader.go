@@ -15,7 +15,10 @@ import (
 	"time"
 
 	apperrors "github.com/codejago/polypully/downloader/internal/app/errors"
+	appevents "github.com/matthogan/polypully-events"
 )
+
+var _ CommunicationClient = (*HttpClient)(nil)
 
 type CommunicationClient interface {
 	FetchData(d *Download, fragment *Fragment) error
@@ -39,6 +42,7 @@ type Download struct {
 	Fragments     map[int]*Fragment
 	fragLock      *sync.RWMutex
 	FileSize      int64
+	events        appevents.EventsApi
 }
 
 type Fragment struct {
@@ -109,6 +113,7 @@ func (d *Download) GetProgess() int64 {
 func (d *Download) downloadRoutine(fragmentSize int64, filename string, size int64) {
 
 	d.Status = DownloadRunning
+	d.events.Notify(appevents.NewDownloadEvent(d.Status.String(), d.Id))
 
 	for r := int64(0); r <= d.Retries; r++ {
 
@@ -116,7 +121,7 @@ func (d *Download) downloadRoutine(fragmentSize int64, filename string, size int
 			d.Status = DownloadInitError
 			d.Errors.PushFront(err)
 			slog.Error("failed in initialize %s", d.Status)
-			return
+			break
 		}
 		defer d.File.Close()
 
@@ -146,10 +151,13 @@ func (d *Download) downloadRoutine(fragmentSize int64, filename string, size int
 		}
 
 		slog.Info("complete", "filename", filename)
-		break // success
+		break // success or failure
 	}
 
-	d.Status = DownloadComplete
+	if d.Status == DownloadRunning {
+		d.Status = DownloadComplete
+	}
+	d.events.Notify(appevents.NewDownloadEvent(d.Status.String(), d.Id))
 }
 
 // cleanup in case of error
