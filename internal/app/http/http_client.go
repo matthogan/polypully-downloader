@@ -1,13 +1,18 @@
 package http
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/codejago/polypully/downloader/internal/app/model"
 )
+
+var _ model.CommunicationClient = (*HttpClient)(nil)
 
 type HttpClient struct {
 	client *http.Client
@@ -38,50 +43,42 @@ func NewHttpClient(h *HttpClientConfig) *HttpClient {
 	}
 }
 
-func (h *HttpClient) FetchData(d *Download, fragment *Fragment) error {
+// FetchData fetches a fragment of data from the resource
+// and writes it to the destination fragment file. The
+// context is used to enable cancellation of the fetch.
+func (h *HttpClient) FetchData(context context.Context, d *model.Resource, fragment *model.Fragment) error {
 	slog.Debug("download", "Fragment", fragment)
-	req, err := http.NewRequestWithContext(d.Context, "GET", d.Uri, nil)
+	req, err := http.NewRequestWithContext(context, "GET", d.Uri, nil)
 	if err != nil {
-		slog.Error("request", "error", err)
-		return err
+		return fmt.Errorf("error creating request: %v", err)
 	}
 	if d.MaxFragments > 1 && fragment.End > fragment.Start {
 		rangeHeader := "bytes=" + strconv.FormatInt(fragment.Start, 10) + "-" + strconv.FormatInt(fragment.End, 10)
-		slog.Debug("rangeHeader", "rangeHeader", rangeHeader)
 		req.Header.Add("Range", rangeHeader)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		slog.Error("download", "error", err)
-		return err
+		return fmt.Errorf("error downloading: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		slog.Error("download", "error", err, "status", resp.StatusCode)
-		return err
-	}
-	_, err = d.File.Seek(fragment.Start, 0)
-	if err != nil {
-		slog.Error("seek", "error", err)
-		return err
+		return fmt.Errorf("error downloading: %v", err)
 	}
 	buf := make([]byte, d.BufferSize)
 	for {
 		read, err := resp.Body.Read(buf)
 		if err != nil && err != io.EOF {
-			slog.Error("read", "error", err)
-			return err
+			return fmt.Errorf("error reading: %v", err)
 		}
 		if read == 0 {
 			break
 		}
 		_, err = fragment.Destination.Write(buf[:read])
 		if err != nil {
-			slog.Error("write", "error", err)
-			return err
+			return fmt.Errorf("error writing: %v", err)
 		}
 		fragment.Progress += int64(read)
 	}
-	slog.Debug("write", "written", fragment.Progress, "from", fragment.End-fragment.Start)
+	slog.Debug("write", "wrote", fragment.Progress, "from", fragment.End-fragment.Start)
 	return nil
 }

@@ -28,3 +28,13 @@ kafka_topic: "download"
 kafka_producer_id: "download-producer-0"
 # kafka_config: 
 #   acks: 1
+
+#
+# local storage config
+# the path must be accessible i.e. permissions and existing...
+# chown user -R /var/local/storage
+storage_path: "/var/local/storage"
+storage_buffer_mib: 2
+storage_cache_mib: 2
+storage_compression: none
+storage_recovery: true

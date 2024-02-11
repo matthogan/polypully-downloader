@@ -1,11 +1,9 @@
 package http
 
 import (
-	"container/list"
 	"context"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,115 +13,73 @@ import (
 	"time"
 
 	apperrors "github.com/codejago/polypully/downloader/internal/app/errors"
+	model "github.com/codejago/polypully/downloader/internal/app/model"
+	"github.com/codejago/polypully/downloader/internal/app/storage"
 	appevents "github.com/matthogan/polypully-events"
 )
 
-var _ CommunicationClient = (*HttpClient)(nil)
-
-type CommunicationClient interface {
-	FetchData(d *Download, fragment *Fragment) error
-}
-
+// Download represents a download with some runtime aspects
 type Download struct {
-	Id            string
-	Client        CommunicationClient
-	File          *os.File
-	Uri           string
-	Destination   string
-	MaxFragments  int64
-	MinFragmentSz int64
-	Retries       int64
-	FileMode      fs.FileMode
-	Status        DownloadStatus
-	Errors        *list.List
-	Context       context.Context
-	Cancel        func()
-	BufferSize    int64
-	Fragments     map[int]*Fragment
-	fragLock      *sync.RWMutex
-	FileSize      int64
-	events        appevents.EventsApi
-}
-
-type Fragment struct {
-	Destination io.Writer
-	Start       int64
-	End         int64
-	Error       error
-	StartTime   time.Time
-	EndTime     time.Time
-	Progress    int64
-}
-
-type DownloadStatus int32
-
-const (
-	DownloadUndefined DownloadStatus = iota
-	DownloadInitialising
-	DownloadRunning
-	DownloadComplete
-	DownloadError
-	DownloadInitError
-)
-
-// String method is automatically called when we try to print the value of the DownloadStatus
-func (d DownloadStatus) String() string {
-	return [...]string{"undefined", "initializing", "running", "complete", "error", "init_error"}[d]
-}
-
-type ContextKey string
-
-// Sum of the fragment elapsed times
-func (d *Download) GetElapsedMS() int64 {
-
-	d.fragLock.RLock() // blocks other readers
-	defer d.fragLock.RUnlock()
-
-	var elapsedMS int64
-	now := time.Now()
-
-	for _, v := range d.Fragments {
-		if v.EndTime.IsZero() { // uninitialized
-			elapsedMS += now.Sub(v.StartTime).Milliseconds()
-		} else {
-			elapsedMS += v.EndTime.Sub(v.StartTime).Milliseconds()
-		}
-	}
-
-	return elapsedMS
-}
-
-// Calculated progress percentage as a function of the downloaded bytes and the
-// total size. If the total size is unknown, return 0.
-func (d *Download) GetProgess() int64 {
-
-	if d.FileSize == 0 {
-		return 0
-	}
-
-	var progress int64
-
-	for _, v := range d.Fragments {
-		progress += v.Progress
-	}
-
-	return int64(float64(progress) / float64(d.FileSize) * 100)
+	// Generic resource definition
+	model.Resource
+	// Client is the communication client
+	Client model.CommunicationClient
+	// Context is used to cancel the download
+	Context context.Context
+	// Cancel is a function that can be called to cancel the download
+	Cancel func()
+	// Events update the wider system
+	Events appevents.EventsApi
+	// Local storage for the download
+	storage storage.StorageApi
 }
 
 func (d *Download) downloadRoutine(fragmentSize int64, filename string, size int64) {
 
-	d.Status = DownloadRunning
-	d.events.Notify(appevents.NewDownloadEvent(d.Status.String(), d.Id))
+	d.Status = model.DownloadRunning
+
+	if err := d.UpdateResource(); err != nil {
+		return
+	}
+
+	if d.Status != model.DownloadError {
+		d.download(fragmentSize, filename, size)
+	}
+
+	if d.Status == model.DownloadRunning {
+		d.Status = model.DownloadComplete
+	}
+
+	d.UpdateResource()
+}
+
+func (d *Download) UpdateResource() error {
+	if d.Status == model.DownloadError {
+		return nil
+	}
+	if err := d.storage.UpdateResource(&d.Resource); err != nil {
+		d.Errors.PushFront(err)
+		d.Status = model.DownloadError
+		return err
+	}
+	if err := d.Events.Notify(appevents.NewDownloadEvent(d.Status.String(), d.Id)); err != nil {
+		d.Errors.PushFront(err)
+		d.Status = model.DownloadError
+		return err
+	}
+	return nil
+}
+
+func (d *Download) download(fragmentSize int64, filename string, size int64) {
 
 	for r := int64(0); r <= d.Retries; r++ {
 
 		if err := d.InitializeFile(filename); err != nil {
-			d.Status = DownloadInitError
+			d.Status = model.DownloadInitError
 			d.Errors.PushFront(err)
 			slog.Error("failed in initialize %s", d.Status)
 			break
 		}
-		defer d.File.Close()
 
 		errorChannel := d.DownloadFragments(fragmentSize, filename, size)
 		for err := range errorChannel {
@@ -133,9 +89,9 @@ func (d *Download) downloadRoutine(fragmentSize int64, filename string, size int
 					slog.Info("retry", "filename", filename, "retry", r, "retries", d.Retries)
 					continue
 				}
-				d.Status = DownloadError
+				d.Status = model.DownloadError
 				d.Errors.PushFront(err)
-				slog.Error("failed in download %s", DownloadError)
+				slog.Error("failed in download %s", model.DownloadError)
 			}
 		}
 
@@ -145,25 +101,20 @@ func (d *Download) downloadRoutine(fragmentSize int64, filename string, size int
 				slog.Info("retry", "filename", filename, "retry", r, "retries", d.Retries)
 				continue
 			}
-			d.Status = DownloadError
+			d.Status = model.DownloadError
 			d.Errors.PushFront(err)
-			slog.Error("failed in merge %s", DownloadError)
+			slog.Error("failed in merge %s", model.DownloadError)
 		}
 
 		slog.Info("complete", "filename", filename)
 		break // success or failure
 	}
-
-	if d.Status == DownloadRunning {
-		d.Status = DownloadComplete
-	}
-	d.events.Notify(appevents.NewDownloadEvent(d.Status.String(), d.Id))
 }
 
 // cleanup in case of error
 func (d *Download) CancelDownload(filename string) {
 	d.Cancel()
-	if d.Status == DownloadError {
+	if d.Status == model.DownloadError {
 		if err := os.Remove(filename); err != nil {
 			slog.Error("remove failed", "filename", filename, "error", err)
 		}
@@ -221,15 +172,19 @@ func (d *Download) GetFilename() string {
 	return path
 }
 
+// InitializeFile creates a file and truncates it to 0
+// Keeps the filename in the struct
+// Closes the file
 func (d *Download) InitializeFile(filename string) error {
 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, d.FileMode)
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 	if err := file.Truncate(0); err != nil {
 		return err
 	}
-	d.File = file
+	d.File = filename
 	return nil
 }
 
@@ -241,19 +196,33 @@ func (d *Download) InitializeFragmentFile(filename string) (*os.File, error) {
 	return file, nil
 }
 
+// MergeFile appends the fragment file to the main file.
+// Deletes the fragment file.
+// The main file is a shared resource. The caller manages
+// any locking semantics.
 func (d *Download) MergeFile(fragmentFilename string) error {
-	fragmentFile, err := os.Open(fragmentFilename)
+	// read from the fragment file
+	fragmentFile, err := os.OpenFile(fragmentFilename, os.O_RDONLY, 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open fragment file: %v", err)
 	}
 	defer fragmentFile.Close()
-	// end of the file
-	_, err = d.File.Seek(0, io.SeekEnd)
+	// write to the main file
+	file, err := os.OpenFile(d.File, os.O_WRONLY, d.FileMode)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open main file: %v", err)
+	}
+	defer file.Close()
+	// end of the file
+	_, err = file.Seek(0, io.SeekEnd)
+	if err != nil {
+		return fmt.Errorf("failed to seek to end of file: %v", err)
 	}
 	// append the data
-	_, err = io.Copy(d.File, fragmentFile)
+	_, err = io.Copy(file, fragmentFile)
+	if err != nil {
+		return fmt.Errorf("failed to copy fragment to main file: %v", err)
+	}
 	return err
 }
 
@@ -309,14 +278,15 @@ func (d *Download) DownloadSingleFragment(i, fragmentSize int64, filename string
 		slog.Error("initialize", "fragmentFilename", fragmentFilename, "error", err)
 	}
 	defer file.Close()
-	fragment := &Fragment{
+	fragment := &model.Fragment{
+		Index:       int(i),
 		Destination: file,
 		Start:       start,
 		End:         end, // -1 possibly
 		StartTime:   time.Now(),
 	}
 	d.setFragment(i, fragment)
-	err = d.Client.FetchData(d, fragment) // download through the configured channel
+	err = d.Client.FetchData(d.Context, &d.Resource, fragment) // download through the configured channel
 	if err != nil {
 		slog.Error("fetch", "fragmentFilename", fragmentFilename, "error", err)
 	}
@@ -326,8 +296,8 @@ func (d *Download) DownloadSingleFragment(i, fragmentSize int64, filename string
 
 // setFragment is a thread-safe way to write to the map
 // minimizes the time the map is locked
-func (d *Download) setFragment(i int64, fragment *Fragment) {
-	d.fragLock.Lock() // blocks other readers and writers
-	defer d.fragLock.Unlock()
+func (d *Download) setFragment(i int64, fragment *model.Fragment) {
+	d.FragLock.Lock() // blocks other readers and writers
+	defer d.FragLock.Unlock()
 	d.Fragments[int(i)] = fragment
 }

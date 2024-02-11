@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"sync"
 
+	model "github.com/codejago/polypully/downloader/internal/app/model"
+	"github.com/codejago/polypully/downloader/internal/app/storage"
 	appevents "github.com/matthogan/polypully-events"
 
 	"github.com/google/uuid"
@@ -13,41 +15,47 @@ import (
 	"golang.org/x/exp/slog"
 )
 
+// ContextKey is a type for the context key in the Context
+type ContextKey string
+
 // Download represents a download and is cancellable
-func NewDownload(uri string, events appevents.EventsApi) Download {
+func NewDownload(uri string, events appevents.EventsApi, storage storage.StorageApi) Download {
 	id := uuid.New().String()
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx = context.WithValue(ctx, ContextKey("download_id"), id)
-	return Download{
-		Id: id,
+	return Download{ // struct
+		Resource: model.Resource{
+			Id:            id,
+			Uri:           uri,
+			Destination:   viper.GetString("download_directory"),
+			MaxFragments:  viper.GetInt64("max_fragments"),
+			MinFragmentSz: viper.GetInt64("min_fragment_size"),
+			Retries:       viper.GetInt64("retries"),
+			FileMode:      fs.FileMode(viper.GetUint32("filemode")),
+			BufferSize:    viper.GetInt64("buffer_size"),
+			Errors:        list.New(),
+			Fragments:     make(map[int]*model.Fragment),
+			FragLock:      &sync.RWMutex{},
+		},
 		Client: NewHttpClient(&HttpClientConfig{
 			Timeout:   viper.GetDuration("timeout"),
 			Redirects: viper.GetInt("redirects")}),
-		Uri:           uri,
-		Destination:   viper.GetString("download_directory"),
-		MaxFragments:  viper.GetInt64("max_fragments"),
-		MinFragmentSz: viper.GetInt64("min_fragment_size"),
-		Retries:       viper.GetInt64("retries"),
-		FileMode:      fs.FileMode(viper.GetUint32("filemode")),
-		Context:       ctx,
-		BufferSize:    viper.GetInt64("buffer_size"),
-		Errors:        list.New(),
+		Context: ctx,
 		Cancel: func() {
 			slog.Info("cancelling", "id", ctx.Value(ContextKey("download_id")))
 			cancel()
 		},
-		Fragments: make(map[int]*Fragment),
-		fragLock:  &sync.RWMutex{},
-		events:    events,
+		Events:  events,
+		storage: storage,
 	}
 }
 
 func (d *Download) Download() error {
 
-	d.Status = DownloadInitialising
+	d.Status = model.DownloadInitialising
 	if err := d.Validate(); err != nil {
 		slog.Error("validate", "error", err)
-		d.Status = DownloadError
+		d.Status = model.DownloadError
 		return err
 	}
 

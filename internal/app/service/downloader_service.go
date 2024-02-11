@@ -18,6 +18,7 @@ import (
 	"github.com/codejago/polypully/downloader/api/generated/openapi"
 	apperrors "github.com/codejago/polypully/downloader/internal/app/errors"
 	http_downloads "github.com/codejago/polypully/downloader/internal/app/http"
+	"github.com/codejago/polypully/downloader/internal/app/storage"
 	appevents "github.com/matthogan/polypully-events"
 )
 
@@ -29,23 +30,25 @@ type ServiceConfig struct {
 // This service should implement the business logic for every endpoint for the DefaultApi API.
 // Include any external packages or services that will be required by this service.
 type DownloaderApiService struct {
-	downloads map[string]*http_downloads.Download
-	events    appevents.EventsApi
+	storage storage.StorageApi
+	events  appevents.EventsApi
 }
 
 // NewApiService creates a downloader api service
-func NewApiService(events appevents.EventsApi) openapi.DefaultApiServicer {
+func NewApiService(events appevents.EventsApi, storage storage.StorageApi) openapi.DefaultApiServicer {
 	return &DownloaderApiService{
-		events:    events,
-		downloads: make(map[string]*http_downloads.Download),
+		events:  events,
+		storage: storage,
 	}
 }
 
 // DownloadsDownloadIdGet - Get the current status of a download
 func (s *DownloaderApiService) DownloadsDownloadIdGet(ctx context.Context, downloadId string) (openapi.ImplResponse, error) {
-	download, exists := s.downloads[downloadId]
-	if !exists {
+	download, _, err := s.storage.GetResource(downloadId)
+	if err == nil && download == nil {
 		return openapi.Response(http.StatusNotFound, nil), nil
+	} else if err != nil {
+		return openapi.Response(http.StatusInternalServerError, nil), nil
 	}
 	return openapi.Response(http.StatusOK, openapi.DownloadStatus{
 		DownloadId: download.Id,
@@ -63,16 +66,18 @@ func (s *DownloaderApiService) DownloadsDownloadIdPatch(ctx context.Context, dow
 // DownloadsGet - List all ongoing downloads
 func (s *DownloaderApiService) DownloadsGet(ctx context.Context) (openapi.ImplResponse, error) {
 	var statuses []openapi.DownloadStatus
-	for _, download := range s.downloads {
-		// if download.Status == http_downloads.DownloadRunning {
+	resources, err := s.storage.ListResources(nil)
+	if err != nil {
+		return openapi.Response(http.StatusInternalServerError, nil), err
+	}
+	for _, resource := range resources {
 		statuses = append(statuses, openapi.DownloadStatus{
-			DownloadId: download.Id,
-			Url:        download.Uri,
-			Status:     fmt.Sprintf("%s", download.Status),
-			ElapsedMS:  download.GetElapsedMS(),
-			Progress:   download.GetProgess(),
+			DownloadId: resource.Id,
+			Url:        resource.Uri,
+			Status:     fmt.Sprintf("%s", resource.Status),
+			ElapsedMS:  resource.GetElapsedMS(),
+			Progress:   resource.GetProgess(),
 		})
-		// }
 	}
 	if len(statuses) == 0 {
 		return openapi.Response(http.StatusNoContent, nil), nil
@@ -82,7 +87,7 @@ func (s *DownloaderApiService) DownloadsGet(ctx context.Context) (openapi.ImplRe
 
 // DownloadsPost - Request a new download
 func (s *DownloaderApiService) DownloadsPost(ctx context.Context, downloadRequest openapi.DownloadRequest) (openapi.ImplResponse, error) {
-	download := http_downloads.NewDownload(downloadRequest.Url, s.events)
+	download := http_downloads.NewDownload(downloadRequest.Url, s.events, s.storage)
 	err := download.Download()
 	s.events.Notify(appevents.NewDownloadEvent(download.Status.String(), download.Id))
 	if err != nil {
@@ -91,7 +96,10 @@ func (s *DownloaderApiService) DownloadsPost(ctx context.Context, downloadReques
 		}
 		return openapi.Response(http.StatusInternalServerError, nil), err
 	}
-	s.downloads[download.Id] = &download
+	err = s.storage.UpdateResource(&download.Resource)
+	if err != nil {
+		return openapi.Response(http.StatusInternalServerError, nil), err
+	}
 	return openapi.Response(http.StatusOK, openapi.DownloadStatus{
 		DownloadId: download.Id,
 		Url:        download.Uri,
