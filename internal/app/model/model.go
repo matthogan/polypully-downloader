@@ -59,6 +59,7 @@ type Resource struct {
 	File          string            `json:"file"`
 	Uri           string            `json:"uri"`
 	Destination   string            `json:"destination"`
+	PathTemplate  string            `json:"path_template"`
 	MaxFragments  int64             `json:"max_fragments"`
 	MinFragmentSz int64             `json:"min_fragment_size"`
 	Retries       int64             `json:"retries"`
@@ -69,6 +70,8 @@ type Resource struct {
 	Fragments     map[int]*Fragment `json:"fragments"`
 	FileSize      int64             `json:"file_size"`
 	FragLock      *sync.RWMutex     `json:"-"` // FragLock is a lock for the Fragments map
+	StartTime     time.Time         `json:"start_time"`
+	EndTime       time.Time         `json:"end_time"`
 }
 
 func (r Resource) Identifier() string {

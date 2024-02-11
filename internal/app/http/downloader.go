@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -48,9 +49,22 @@ func (d *Download) downloadRoutine(fragmentSize int64, filename string, size int
 
 	if d.Status == model.DownloadRunning {
 		d.Status = model.DownloadComplete
+		d.EndTime = time.Now()
+		if err := d.finalize(); err != nil {
+			d.Status = model.DownloadError
+			d.Errors.PushFront(err)
+		}
 	}
+}
 
-	d.UpdateResource()
+func (d *Download) finalize() error {
+	if err := d.CreateManifest(); err != nil {
+		return fmt.Errorf("failed to create manifest: %v", err)
+	}
+	if err := d.UpdateResource(); err != nil {
+		return fmt.Errorf("failed to update resource: %v", err)
+	}
+	return nil
 }
 
 func (d *Download) UpdateResource() error {
@@ -125,6 +139,9 @@ func (d *Download) Validate() error {
 	if d.Destination == "" {
 		return &apperrors.ValidationError{Msg: "destination not set"}
 	}
+	if d.PathTemplate == "" {
+		return &apperrors.ValidationError{Msg: "path template not set"}
+	}
 	if d.MaxFragments == 0 {
 		return &apperrors.ValidationError{Msg: "max fragments not set"}
 	}
@@ -153,10 +170,23 @@ func (d *Download) GetFileSize() (int64, error) {
 	return size, nil
 }
 
-func (d *Download) GetFilename() string {
-	filename := path.Base(d.Uri)
-	path := path.Join(d.Destination, filename)
-	// if the file exists, append a number to the filename of the existing file
+func (d *Download) BurnDirectory(structure string) error {
+	path := path.Join(d.Destination, structure)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			err = os.MkdirAll(path, 0755)
+		}
+		if err != nil {
+			slog.Error("mkdir", "path", path, "error", err)
+		}
+		return err
+	}
+	return nil
+}
+
+// if the file exists, append a number to the filename of the existing file
+func (d *Download) Fqfn(root string, directories string, filename string) string {
+	path := path.Join(root, directories, filename)
 	if _, err := os.Stat(path); err == nil {
 		i := 1
 		for {
@@ -300,4 +330,25 @@ func (d *Download) setFragment(i int64, fragment *model.Fragment) {
 	d.FragLock.Lock() // blocks other readers and writers
 	defer d.FragLock.Unlock()
 	d.Fragments[int(i)] = fragment
+}
+
+// Create a manifest of the download alongside
+// the file.
+func (d *Download) CreateManifest() error {
+	data, err := json.MarshalIndent(d.Resource, "", "    ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal manifest: %v", err)
+	}
+	manifest := d.Fqfn(path.Dir(d.File), "", "manifest.mf")
+	file, err := os.OpenFile(manifest, os.O_CREATE|os.O_WRONLY, d.FileMode)
+	if err != nil {
+		return fmt.Errorf("failed to open manifest file: %v", err)
+	}
+	defer file.Close()
+	_, err = file.Write(data)
+	if err != nil {
+		return fmt.Errorf("failed to write manifest file: %v", err)
+	}
+	slog.Debug("manifest", "written", manifest)
+	return nil
 }

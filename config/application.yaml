@@ -2,8 +2,6 @@ port: 1944
 ip: 127.0.0.1
 server_cert: ""
 max_concurrent_downloads: 1
-# the downloaded file is saved to this directory before moving to final path
-download_directory: "/tmp"
 # the downloaded file is moved to this directory after download
 final_path: "${filename}/${host}/${id}"
 metadata_directory: ".metadata"
@@ -15,7 +13,6 @@ log_config_file: ""
 max_fragments: 4
 min_fragment_size: 1000000
 retries: 1
-filemode: 0644
 buffer_size: 81920
 timeout: 0s
 redirects: 5
@@ -38,3 +35,13 @@ storage_buffer_mib: 2
 storage_cache_mib: 2
 storage_compression: none
 storage_recovery: true
+
+#
+# the downloaded file is saved to this directory before moving to final path
+# remember to chown user -R /var/local/download
+download_directory: "/var/local/download"
+# final path containing the file and metadata
+# filename/id
+path_template: "%s/%s"
+# ownership
+filemode: 0644

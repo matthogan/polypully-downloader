@@ -3,8 +3,11 @@ package http
 import (
 	"container/list"
 	"context"
+	"fmt"
 	"io/fs"
+	"path"
 	"sync"
+	"time"
 
 	model "github.com/codejago/polypully/downloader/internal/app/model"
 	"github.com/codejago/polypully/downloader/internal/app/storage"
@@ -28,6 +31,7 @@ func NewDownload(uri string, events appevents.EventsApi, storage storage.Storage
 			Id:            id,
 			Uri:           uri,
 			Destination:   viper.GetString("download_directory"),
+			PathTemplate:  viper.GetString("path_template"),
 			MaxFragments:  viper.GetInt64("max_fragments"),
 			MinFragmentSz: viper.GetInt64("min_fragment_size"),
 			Retries:       viper.GetInt64("retries"),
@@ -53,14 +57,23 @@ func NewDownload(uri string, events appevents.EventsApi, storage storage.Storage
 func (d *Download) Download() error {
 
 	d.Status = model.DownloadInitialising
+	d.StartTime = time.Now()
 	if err := d.Validate(); err != nil {
 		slog.Error("validate", "error", err)
 		d.Status = model.DownloadError
 		return err
 	}
-
-	filename := d.GetFilename() // fqfn
-	slog.Debug("download", "filename", filename)
+	filename := path.Base(d.Uri)
+	dir := d.PathTemplate
+	if dir != "" {
+		dir = fmt.Sprintf(dir, filename, d.Id)
+	}
+	if err := d.BurnDirectory(dir); err != nil {
+		d.Status = model.DownloadError
+		return fmt.Errorf("burn directory: %w", err)
+	}
+	fqfn := d.Fqfn(d.Destination, dir, filename) // fqfn
+	slog.Debug("download", "fqfn", fqfn)
 	size, err := d.GetFileSize()
 	if err != nil {
 		slog.Info("file size", "error", err) // content-length is not always present
@@ -76,7 +89,7 @@ func (d *Download) Download() error {
 	}
 	slog.Debug("download", "fragmentSize", fragmentSize)
 
-	go d.downloadRoutine(fragmentSize, filename, size)
+	go d.downloadRoutine(fragmentSize, fqfn, size)
 
 	return err
 }
