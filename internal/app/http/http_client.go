@@ -52,8 +52,9 @@ func (h *HttpClient) FetchData(context context.Context, d *model.Resource, fragm
 	if err != nil {
 		return fmt.Errorf("error creating request: %v", err)
 	}
-	if d.MaxFragments > 1 && fragment.End > fragment.Start {
-		rangeHeader := "bytes=" + strconv.FormatInt(fragment.Start, 10) + "-" + strconv.FormatInt(fragment.End, 10)
+	if len(d.Fragments) > 1 && fragment.End > fragment.Start {
+		rangeHeader := "bytes=" + strconv.FormatInt(int64(fragment.Start), 10) + "-" +
+			strconv.FormatInt(int64(fragment.End), 10)
 		req.Header.Add("Range", rangeHeader)
 	}
 	resp, err := http.DefaultClient.Do(req)
@@ -77,7 +78,7 @@ func (h *HttpClient) FetchData(context context.Context, d *model.Resource, fragm
 		if err != nil {
 			return fmt.Errorf("error writing: %v", err)
 		}
-		fragment.Progress += int64(read)
+		fragment.Progress += read
 	}
 	slog.Debug("write", "wrote", fragment.Progress, "from", fragment.End-fragment.Start)
 	return nil

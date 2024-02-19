@@ -35,7 +35,7 @@ type Download struct {
 	storage storage.StorageApi
 }
 
-func (d *Download) downloadRoutine(fragmentSize int64, filename string, size int64) {
+func (d *Download) downloadRoutine() {
 
 	d.Status = model.DownloadRunning
 
@@ -44,7 +44,7 @@ func (d *Download) downloadRoutine(fragmentSize int64, filename string, size int
 	}
 
 	if d.Status != model.DownloadError {
-		d.download(fragmentSize, filename, size)
+		d.download()
 	}
 
 	if d.Status == model.DownloadRunning {
@@ -84,23 +84,23 @@ func (d *Download) UpdateResource() error {
 	return nil
 }
 
-func (d *Download) download(fragmentSize int64, filename string, size int64) {
+func (d *Download) download() {
 
-	for r := int64(0); r <= d.Retries; r++ {
+	for r := 0; r <= d.Retries; r++ {
 
-		if err := d.InitializeFile(filename); err != nil {
+		if err := d.InitializeFile(); err != nil {
 			d.Status = model.DownloadInitError
 			d.Errors.PushFront(err)
 			slog.Error("failed in initialize %s", d.Status)
 			break
 		}
 
-		errorChannel := d.DownloadFragments(fragmentSize, filename, size)
+		errorChannel := d.DownloadFragments()
 		for err := range errorChannel {
 			if err != nil {
-				slog.Error("download", "filename", filename, "error", err)
+				slog.Error("download", "filename", d.File, "error", err)
 				if r < d.Retries {
-					slog.Info("retry", "filename", filename, "retry", r, "retries", d.Retries)
+					slog.Info("retry", "filename", d.File, "retry", r, "retries", d.Retries)
 					continue
 				}
 				d.Status = model.DownloadError
@@ -109,10 +109,10 @@ func (d *Download) download(fragmentSize int64, filename string, size int64) {
 			}
 		}
 
-		if err := d.MergeFiles(filename); err != nil {
-			slog.Debug("merge", "filename", filename, "error", err)
+		if err := d.MergeFiles(d.File); err != nil {
+			slog.Debug("merge", "filename", d.File, "error", err)
 			if r < d.Retries {
-				slog.Info("retry", "filename", filename, "retry", r, "retries", d.Retries)
+				slog.Info("retry", "filename", d.File, "retry", r, "retries", d.Retries)
 				continue
 			}
 			d.Status = model.DownloadError
@@ -120,7 +120,7 @@ func (d *Download) download(fragmentSize int64, filename string, size int64) {
 			slog.Error("failed in merge %s", model.DownloadError)
 		}
 
-		slog.Info("complete", "filename", filename)
+		slog.Info("complete", "filename", d.File)
 		break // success or failure
 	}
 }
@@ -142,8 +142,8 @@ func (d *Download) Validate() error {
 	if d.PathTemplate == "" {
 		return &apperrors.ValidationError{Msg: "path template not set"}
 	}
-	if d.MaxFragments == 0 {
-		return &apperrors.ValidationError{Msg: "max fragments not set"}
+	if d.MaxConcFragments == 0 {
+		return &apperrors.ValidationError{Msg: "max concurrent fragments not set"}
 	}
 	if d.Uri == "" {
 		return &apperrors.ValidationError{Msg: "uri not set"}
@@ -205,8 +205,8 @@ func (d *Download) Fqfn(root string, directories string, filename string) string
 // InitializeFile creates a file and truncates it to 0
 // Keeps the filename in the struct
 // Closes the file
-func (d *Download) InitializeFile(filename string) error {
-	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, d.FileMode)
+func (d *Download) InitializeFile() error {
+	file, err := os.OpenFile(d.File, os.O_CREATE|os.O_WRONLY, d.FileMode)
 	if err != nil {
 		return err
 	}
@@ -214,7 +214,6 @@ func (d *Download) InitializeFile(filename string) error {
 	if err := file.Truncate(0); err != nil {
 		return err
 	}
-	d.File = filename
 	return nil
 }
 
@@ -256,80 +255,64 @@ func (d *Download) MergeFile(fragmentFilename string) error {
 	return err
 }
 
-func (d *Download) GetFragmentFilename(filename string, i int64) string {
-	return filename + "." + strconv.FormatInt(i, 10)
-}
-
 func (d *Download) MergeFiles(filename string) error {
-	for i := int64(0); i < int64(d.MaxFragments); i++ {
-		fragment := d.GetFragmentFilename(filename, i)
-		err := d.MergeFile(fragment)
-		if err != nil {
+	for i := 0; i < len(d.Fragments); i++ {
+		f := d.Fragments[i]
+		if err := d.MergeFile(f.Filename); err != nil {
 			return err
 		}
-		err = os.Remove(fragment)
-		if err != nil {
+		if err := os.Remove(f.Filename); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (d *Download) DownloadFragments(fragmentSize int64, filename string, size int64) chan error {
-	errChan := make(chan error, d.MaxFragments)
-	var wg sync.WaitGroup
+// download the fragments concurrently using channels rather than
+// a latch or a semaphore.
 
-	for i := int64(0); i < d.MaxFragments; i++ {
+func (d *Download) DownloadFragments() chan error {
+	var wg sync.WaitGroup                                      // wait for all fragments to download
+	errChan := make(chan error, len(d.Fragments))              // collect errors
+	fragChan := make(chan *model.Fragment, d.MaxConcFragments) // control concurrent downloads
+	// push onto the channel
+	// push onto the channel
+	go func() {
+		for _, f := range d.Fragments {
+			fragChan <- f
+		}
+		close(fragChan) // close the channel here, after all fragments have been sent
+	}()
+	// pop off the channel
+	for f := range fragChan {
 		wg.Add(1)
-		go func(i int64) {
+		go func(f *model.Fragment) {
 			defer wg.Done()
-			err := d.DownloadSingleFragment(i, fragmentSize, filename, size)
-			if err != nil {
+			if err := d.DownloadSingleFragment(f); err != nil {
 				errChan <- err
-				d.CancelDownload(filename)
+				d.CancelDownload(d.File)
 			}
-		}(i)
+		}(f)
 	}
-
 	wg.Wait()
 	close(errChan)
 	return errChan
 }
 
-func (d *Download) DownloadSingleFragment(i, fragmentSize int64, filename string, size int64) error {
-	start := i * fragmentSize
-	end := start + fragmentSize - 1
-	if i == d.MaxFragments-1 {
-		end = size - 1
-	}
-	fragmentFilename := d.GetFragmentFilename(filename, i)
-	file, err := d.InitializeFragmentFile(fragmentFilename)
+func (d *Download) DownloadSingleFragment(f *model.Fragment) error {
+	file, err := d.InitializeFragmentFile(f.Filename)
 	if err != nil {
-		slog.Error("initialize", "fragmentFilename", fragmentFilename, "error", err)
+		slog.Error("initialize", "fragmentFilename", f.Filename, "error", err)
 	}
 	defer file.Close()
-	fragment := &model.Fragment{
-		Index:       int(i),
-		Destination: file,
-		Start:       start,
-		End:         end, // -1 possibly
-		StartTime:   time.Now(),
+	f.StartTime = time.Now()
+	f.Destination = file
+	// download through the configured channel
+	if err = d.Client.FetchData(d.Context, &d.Resource, f); err != nil {
+		slog.Error("fetch", "fragmentFilename", f.Filename, "error", err)
 	}
-	d.setFragment(i, fragment)
-	err = d.Client.FetchData(d.Context, &d.Resource, fragment) // download through the configured channel
-	if err != nil {
-		slog.Error("fetch", "fragmentFilename", fragmentFilename, "error", err)
-	}
-	fragment.EndTime = time.Now()
+	f.EndTime = time.Now()
 	return err
-}
-
-// setFragment is a thread-safe way to write to the map
-// minimizes the time the map is locked
-func (d *Download) setFragment(i int64, fragment *model.Fragment) {
-	d.FragLock.Lock() // blocks other readers and writers
-	defer d.FragLock.Unlock()
-	d.Fragments[int(i)] = fragment
 }
 
 // Create a manifest of the download alongside

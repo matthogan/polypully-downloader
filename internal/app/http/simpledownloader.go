@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"strconv"
 	"sync"
 	"time"
 
@@ -28,18 +29,19 @@ func NewDownload(uri string, events appevents.EventsApi, storage storage.Storage
 	ctx = context.WithValue(ctx, ContextKey("download_id"), id)
 	return Download{ // struct
 		Resource: model.Resource{
-			Id:            id,
-			Uri:           uri,
-			Destination:   viper.GetString("download_directory"),
-			PathTemplate:  viper.GetString("path_template"),
-			MaxFragments:  viper.GetInt64("max_fragments"),
-			MinFragmentSz: viper.GetInt64("min_fragment_size"),
-			Retries:       viper.GetInt64("retries"),
-			FileMode:      fs.FileMode(viper.GetUint32("filemode")),
-			BufferSize:    viper.GetInt64("buffer_size"),
-			Errors:        list.New(),
-			Fragments:     make(map[int]*model.Fragment),
-			FragLock:      &sync.RWMutex{},
+			Id:               id,
+			Uri:              uri,
+			Destination:      viper.GetString("download_directory"),
+			PathTemplate:     viper.GetString("path_template"),
+			MaxConcFragments: viper.GetInt("max_conc_fragments"),
+			MaxFragmentSz:    viper.GetInt("max_fragment_size"),
+			MinFragmentSz:    viper.GetInt("min_fragment_size"),
+			Retries:          viper.GetInt("retries"),
+			FileMode:         fs.FileMode(viper.GetUint32("filemode")),
+			BufferSize:       viper.GetInt("buffer_size"),
+			Errors:           list.New(),
+			Fragments:        make(map[int]*model.Fragment),
+			FragLock:         &sync.RWMutex{},
 		},
 		Client: NewHttpClient(&HttpClientConfig{
 			Timeout:   viper.GetDuration("timeout"),
@@ -72,24 +74,50 @@ func (d *Download) Download() error {
 		d.Status = model.DownloadError
 		return fmt.Errorf("burn directory: %w", err)
 	}
-	fqfn := d.Fqfn(d.Destination, dir, filename) // fqfn
-	slog.Debug("download", "fqfn", fqfn)
 	size, err := d.GetFileSize()
 	if err != nil {
 		slog.Info("file size", "error", err) // content-length is not always present
 		err = nil
 	}
-	d.FileSize = size
+	d.FileSize = int(size)
+	d.File = d.Fqfn(d.Destination, dir, filename) // fqfn
+	slog.Debug("download", "filename", d.File)
 
-	fragmentSize := size
-	if size <= int64(d.MinFragmentSz) { // may be 0
-		d.MaxFragments = 1
-	} else {
-		fragmentSize = size / int64(d.MaxFragments)
-	}
-	slog.Debug("download", "fragmentSize", fragmentSize)
+	d.Fragments = d.fragments()
+	slog.Debug("download", "fragments", len(d.Fragments))
 
-	go d.downloadRoutine(fragmentSize, fqfn, size)
-
+	go d.downloadRoutine()
 	return err
+}
+
+// calculate the fragments based on the max concurrent downloads
+// and fragment size configuration parameters.
+func (d *Download) fragments() map[int]*model.Fragment {
+	fragments := make(map[int]*model.Fragment)
+	fragmentSize := d.MaxFragmentSz
+	nFragments := int(d.FileSize/fragmentSize) + 1
+	if d.FileSize <= d.MinFragmentSz {
+		d.MaxConcFragments = 1
+		nFragments = 1
+		fragmentSize = d.FileSize
+	} else if d.FileSize < d.MaxFragmentSz {
+		fragmentSize = int(d.FileSize / (d.MaxConcFragments - 1))
+		nFragments = int(d.FileSize/fragmentSize) + 1
+	}
+	// create the fragments
+	// last one will be an odd size
+	for i := 0; i < nFragments; i++ {
+		start := i * fragmentSize
+		end := start + fragmentSize - 1
+		if i == nFragments-1 {
+			end = d.FileSize - 1
+		}
+		fragments[i] = &model.Fragment{
+			Index:    int(i),
+			Start:    start,
+			End:      end, // -1 possibly
+			Filename: d.File + "." + strconv.FormatInt(int64(i), 10),
+		}
+	}
+	return fragments
 }

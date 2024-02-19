@@ -44,34 +44,36 @@ type CommunicationClient interface {
 type Fragment struct {
 	Index       int       `json:"index"`
 	Destination io.Writer `json:"-"`
-	Start       int64     `json:"start"`
-	End         int64     `json:"end"`
+	Start       int       `json:"start"`
+	End         int       `json:"end"`
 	Error       error     `json:"error"`
 	StartTime   time.Time `json:"start_time"`
 	EndTime     time.Time `json:"end_time"`
-	Progress    int64     `json:"progress"`
+	Progress    int       `json:"progress"`
+	Filename    string    `json:"filename"`
 }
 
 // Central data structure for the download
 // dependency on the "appevents" package
 type Resource struct {
-	Id            string            `json:"id"`
-	File          string            `json:"file"`
-	Uri           string            `json:"uri"`
-	Destination   string            `json:"destination"`
-	PathTemplate  string            `json:"path_template"`
-	MaxFragments  int64             `json:"max_fragments"`
-	MinFragmentSz int64             `json:"min_fragment_size"`
-	Retries       int64             `json:"retries"`
-	FileMode      fs.FileMode       `json:"filemode"`
-	Status        DownloadStatus    `json:"status"`
-	Errors        *list.List        `json:"errors"`
-	BufferSize    int64             `json:"buffer_size"`
-	Fragments     map[int]*Fragment `json:"fragments"`
-	FileSize      int64             `json:"file_size"`
-	FragLock      *sync.RWMutex     `json:"-"` // FragLock is a lock for the Fragments map
-	StartTime     time.Time         `json:"start_time"`
-	EndTime       time.Time         `json:"end_time"`
+	Id               string            `json:"id"`
+	File             string            `json:"file"`
+	Uri              string            `json:"uri"`
+	Destination      string            `json:"destination"`
+	PathTemplate     string            `json:"path_template"`
+	MaxConcFragments int               `json:"max_conc_fragments"`
+	MaxFragmentSz    int               `json:"max_fragment_size"`
+	MinFragmentSz    int               `json:"min_fragment_size"`
+	Retries          int               `json:"retries"`
+	FileMode         fs.FileMode       `json:"filemode"`
+	Status           DownloadStatus    `json:"status"`
+	Errors           *list.List        `json:"errors"`
+	BufferSize       int               `json:"buffer_size"`
+	Fragments        map[int]*Fragment `json:"fragments"`
+	FileSize         int               `json:"file_size"`
+	FragLock         *sync.RWMutex     `json:"-"` // FragLock is a lock for the Fragments map
+	StartTime        time.Time         `json:"start_time"`
+	EndTime          time.Time         `json:"end_time"`
 }
 
 func (r Resource) Identifier() string {
@@ -187,13 +189,13 @@ func (r *Resource) GetElapsedMS() int64 {
 
 // Calculated progress percentage as a function of the downloaded bytes and the
 // total size. If the total size is unknown, return 0.
-func (r *Resource) GetProgess() int64 {
+func (r *Resource) GetProgess() int {
 	if r.FileSize == 0 {
 		return 0
 	}
-	var progress int64
+	var progress int
 	for _, v := range r.Fragments {
 		progress += v.Progress
 	}
-	return int64(float64(progress) / float64(r.FileSize) * 100)
+	return int(progress / r.FileSize * 100)
 }

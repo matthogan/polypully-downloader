@@ -30,7 +30,7 @@ type DownloadStatus struct {
 	ElapsedMS int64 `json:"elapsedMS,omitempty"`
 
 	// The percentage of the download that has been completed, if known
-	Progress int64 `json:"progress,omitempty"`
+	Progress int `json:"progress,omitempty"`
 }
 
 // AssertDownloadStatusRequired checks if the required fields are not zero-ed

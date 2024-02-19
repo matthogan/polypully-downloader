@@ -2,15 +2,12 @@ port: 1944
 ip: 127.0.0.1
 server_cert: ""
 max_concurrent_downloads: 1
-# the downloaded file is moved to this directory after download
-final_path: "${filename}/${host}/${id}"
-metadata_directory: ".metadata"
 log_directory: "/var/log"
-log_config_file: ""
-# + intelligent ie factor by size, max concurrent downloads
-# make it a max fragments per file, and increase the number of fragments by size of target file
-# files with no content-length header will be downloaded in one fragment
-max_fragments: 4
+# files with content-length header will be downloaded in fragments
+max_conc_fragments: 4
+# fragments are this size if the file size is above this size
+max_fragment_size: 5000000
+# 1 fragment if below this size
 min_fragment_size: 1000000
 retries: 1
 buffer_size: 81920
@@ -37,7 +34,7 @@ storage_compression: none
 storage_recovery: true
 
 #
-# the downloaded file is saved to this directory before moving to final path
+# the downloaded file is saved to this directory
 # remember to chown user -R /var/local/download
 download_directory: "/var/local/download"
 # final path containing the file and metadata
