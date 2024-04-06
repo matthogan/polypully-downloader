@@ -40,6 +40,8 @@ func (d *Download) downloadRoutine() {
 	d.Status = model.DownloadRunning
 
 	if err := d.UpdateResource(); err != nil {
+		d.Errors.PushFront(err)
+		d.Status = model.DownloadError
 		return
 	}
 
@@ -91,7 +93,7 @@ func (d *Download) download() {
 		if err := d.InitializeFile(); err != nil {
 			d.Status = model.DownloadInitError
 			d.Errors.PushFront(err)
-			slog.Error("failed in initialize %s", d.Status)
+			slog.Error("failed in initialize", "status", d.Status)
 			break
 		}
 
@@ -105,7 +107,7 @@ func (d *Download) download() {
 				}
 				d.Status = model.DownloadError
 				d.Errors.PushFront(err)
-				slog.Error("failed in download %s", model.DownloadError)
+				slog.Error("failed in download", "status", model.DownloadError)
 			}
 		}
 
@@ -117,7 +119,7 @@ func (d *Download) download() {
 			}
 			d.Status = model.DownloadError
 			d.Errors.PushFront(err)
-			slog.Error("failed in merge %s", model.DownloadError)
+			slog.Error("failed in merge", "status", model.DownloadError)
 		}
 
 		slog.Info("complete", "filename", d.File)
@@ -322,7 +324,7 @@ func (d *Download) CreateManifest() error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal manifest: %v", err)
 	}
-	manifest := d.Fqfn(path.Dir(d.File), "", "manifest.mf")
+	manifest := d.Fqfn(path.Dir(d.File), "", "manifest.json")
 	file, err := os.OpenFile(manifest, os.O_CREATE|os.O_WRONLY, d.FileMode)
 	if err != nil {
 		return fmt.Errorf("failed to open manifest file: %v", err)

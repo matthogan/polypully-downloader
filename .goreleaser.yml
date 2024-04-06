@@ -1,6 +1,6 @@
 project_name: downloader
 env:
-  - GO111MODULE=on
+  # confluent kafka requires cgo
   - CGO_ENABLED=1
 before:
   hooks:
@@ -18,8 +18,6 @@ builds:
       - linux
     goarch:
       - amd64
-    env:
-      - CGO_ENABLED=0
 checksum:
   name_template: "checksums.txt"
 snapshot:

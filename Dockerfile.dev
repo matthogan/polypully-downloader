@@ -16,7 +16,7 @@ RUN goreleaser build --id linux --snapshot --clean
 
 FROM debian:${OS_VERSION}
 RUN apt update -y && apt upgrade -y \
-    && apt install -y ca-certificates
+    && apt install -y ca-certificates curl
 
 RUN mkdir -p /app/config
 COPY config/application.yaml /app/config/application.yaml

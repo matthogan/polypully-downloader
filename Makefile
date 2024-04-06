@@ -1,7 +1,10 @@
 
 # Image URL to use all building/pushing image targets
+REPO ?= github.com/codejago/polypully
 IMG ?= downloader
 TAG ?= 0.1.0
+# Default correlates to a Dockerfile with an extension of .prod
+BUILD_ENV ?= prod
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -57,11 +60,18 @@ mockgen:
 
 .PHONY: docker-build
 docker-build: test ## Build docker image with the manager.
-	DOCKER_BUILDKIT=0 docker build --progress tty -t ${IMG}:${TAG} .
+
+ifeq ($(BUILD_ENV), dev)
+	@echo "Building dev image"
+	DOCKER_BUILDKIT=1 docker build --progress tty -t ${REPO}/${IMG}:${TAG} -f "Dockerfile.$(BUILD_ENV)" .
+else
+	@echo "Building release image"
+	DOCKER_BUILDKIT=1 docker build --progress tty -t ${REPO}/${IMG}:${TAG} -f "Dockerfile" .
+endif
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
-	docker push ${IMG}:${TAG}
+	docker push ${REPO}/${IMG}:${TAG}
 
 .PHONY: linux-build
 linux-build: fmt vet ## Run tests.

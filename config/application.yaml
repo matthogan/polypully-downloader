@@ -1,4 +1,4 @@
-port: 1944
+port: 8080
 ip: 127.0.0.1
 server_cert: ""
 max_concurrent_downloads: 1
@@ -20,8 +20,9 @@ kafka_bootstrap_servers: localhost:9092
 kafka_client_id: "download-client-0"
 kafka_topic: "download"
 kafka_producer_id: "download-producer-0"
-# kafka_config: 
-#   acks: 1
+kafka_config:
+  retries: 3
+  "retry.backoff.ms": 1000
 
 #
 # local storage config
@@ -42,3 +43,11 @@ download_directory: "/var/local/download"
 path_template: "%s/%s"
 # ownership
 filemode: 0644
+
+#
+# prometheus config
+prometheus:
+  enable: true
+  port: 2112
+  model: "push"
+  path: "/metrics"

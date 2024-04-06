@@ -14,24 +14,21 @@ import (
 	"net/http"
 )
 
-
-
 // DefaultApiRouter defines the required methods for binding the api requests to a responses for the DefaultApi
 // The DefaultApiRouter implementation should parse necessary information from the http request,
 // pass the data to a DefaultApiServicer to perform the required actions, then write the service results to the http response.
-type DefaultApiRouter interface { 
+type DefaultApiRouter interface {
 	DownloadsDownloadIdGet(http.ResponseWriter, *http.Request)
 	DownloadsDownloadIdPatch(http.ResponseWriter, *http.Request)
 	DownloadsGet(http.ResponseWriter, *http.Request)
 	DownloadsPost(http.ResponseWriter, *http.Request)
 }
 
-
 // DefaultApiServicer defines the api actions for the DefaultApi service
 // This interface intended to stay up to date with the openapi yaml used to generate it,
 // while the service implementation can be ignored with the .openapi-generator-ignore file
 // and updated with the logic required for the API.
-type DefaultApiServicer interface { 
+type DefaultApiServicer interface {
 	DownloadsDownloadIdGet(context.Context, string) (ImplResponse, error)
 	DownloadsDownloadIdPatch(context.Context, string, DownloadUpdate) (ImplResponse, error)
 	DownloadsGet(context.Context) (ImplResponse, error)
