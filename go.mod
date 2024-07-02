@@ -3,9 +3,10 @@ module github.com/codejago/polypully/downloader
 go 1.21.5
 
 require (
+	github.com/cucumber/godog v0.14.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
-	github.com/matthogan/polypully-events v0.0.0-20240304113011-fa028590eeab
+	github.com/matthogan/polypully-events v0.0.0-20240516121708-87aa12a18fef
 	github.com/prometheus/client_golang v1.19.0
 	github.com/syndtr/goleveldb v1.0.0
 )
@@ -13,7 +14,13 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
+	github.com/cucumber/gherkin/go/v26 v26.2.0 // indirect
+	github.com/cucumber/messages/go/v21 v21.0.1 // indirect
+	github.com/gofrs/uuid v4.3.1+incompatible // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
+	github.com/hashicorp/go-memdb v1.3.4 // indirect
+	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/prometheus/common v0.48.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect

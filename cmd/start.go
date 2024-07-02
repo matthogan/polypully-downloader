@@ -27,12 +27,13 @@ func StartCmd() *cobra.Command {
 
 			// init the event producer
 			events, err := appevents.NewEvents(&appevents.EventsConfig{
-				BootstrapServers: viper.GetString("kafka_bootstrap_servers"),
-				ClientId:         viper.GetString("kafka_client_id"),
-				Acks:             viper.GetString("kafka_acks"),
-				Topic:            viper.GetString("kafka_topic"),
-				ProducerId:       viper.GetString("kafka_producer_id"),
-				Config:           viper.GetStringMapString("kafka_config")})
+				Enabled:          viper.GetBool("events.enabled"),
+				BootstrapServers: viper.GetString("events.kafka.bootstrap-servers"),
+				ClientId:         viper.GetString("events.kafka.client_id"),
+				Acks:             viper.GetString("kafka.acks"),
+				Topic:            viper.GetString("kafka.topic"),
+				ProducerId:       viper.GetString("kafka.producer_id"),
+				Config:           viper.GetStringMapString("events.kafka.config")})
 			if err != nil {
 				slog.Error("failed to init the event producer", "error", err)
 				os.Exit(-1)
@@ -40,11 +41,11 @@ func StartCmd() *cobra.Command {
 
 			// init the local storage
 			localStorage, err := storage.NewLocalStorage(&storage.LocalStorageConfig{
-				Path:        viper.GetString("storage_path"),
-				BufferMiB:   viper.GetInt("storage_buffer_mib"),
-				CacheMiB:    viper.GetInt("storage_cache_mib"),
-				Compression: viper.GetString("storage_compression"),
-				Recovery:    viper.GetBool("storage_recovery")})
+				Path:        viper.GetString("storage.path"),
+				BufferMiB:   viper.GetInt("storage.buffer-mib"),
+				CacheMiB:    viper.GetInt("storage.cache-mib"),
+				Compression: viper.GetString("storage.compression"),
+				Recovery:    viper.GetBool("storage.recovery")})
 			if err != nil {
 				slog.Error("failed to init the local storage", "error", err)
 				os.Exit(-1)

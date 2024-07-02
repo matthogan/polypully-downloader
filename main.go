@@ -12,8 +12,7 @@ import (
 )
 
 var (
-	cfgFile string
-	co      = &cmd.Configuration{}
+	co = &cmd.Configuration{}
 )
 
 func init() {
@@ -21,6 +20,8 @@ func init() {
 }
 
 func main() {
+
+	defer finally()
 
 	rootCmd := &cobra.Command{
 		Use:   "downloader",
@@ -43,6 +44,6 @@ func main() {
 // catch panics so stack traces are not output
 func finally() {
 	if err := recover(); err != nil {
-		fmt.Fprintf(os.Stdout, "Error: %s\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 	}
 }

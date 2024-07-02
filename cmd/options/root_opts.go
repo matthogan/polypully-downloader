@@ -13,6 +13,6 @@ var _ Interface = (*RootOptions)(nil)
 
 // AddFlags implements Interface
 func (o *RootOptions) AddFlags(cmd *cobra.Command, v *viper.Viper) {
-	cmd.PersistentFlags().StringVarP(&o.Config, "config", "c", "", "config file (default is config/application.yaml)")
+	cmd.PersistentFlags().StringVar(&o.Config, "config", "", "config file (default is config/application.yaml)")
 	Load(cmd, v)
 }

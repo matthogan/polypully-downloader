@@ -59,6 +59,12 @@ SONAR_KEY ?= github.com.matthogan.zc.cmd.cn
 SONAR_TOKEN ?= 36bf40c0d7cd898009d4bf5d2b52483c0743f025
 ```
 
+## BDD
+
+```shell
+$ go test -test.v -test.run ^TestFeatures$ ./tests
+```
+
 ## Mocking
 
 The [gomock](https://github.com/golang/mock) package generates mocks of any `interface` type that it

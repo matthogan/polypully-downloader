@@ -12,6 +12,7 @@ import (
 	"github.com/codejago/polypully/downloader/internal/app/model"
 )
 
+// static conversion check
 var _ model.CommunicationClient = (*HttpClient)(nil)
 
 type HttpClient struct {

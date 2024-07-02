@@ -1,48 +1,59 @@
-port: 8080
-ip: 127.0.0.1
-server_cert: ""
-max_concurrent_downloads: 1
-log_directory: "/var/log"
-# files with content-length header will be downloaded in fragments
-max_conc_fragments: 4
-# fragments are this size if the file size is above this size
-max_fragment_size: 5000000
-# 1 fragment if below this size
-min_fragment_size: 1000000
-retries: 1
-buffer_size: 81920
-timeout: 0s
-redirects: 5
+#
+# ~~~@ download service configuration @~~~
+#
 
 #
-# kafka config
-kafka_bootstrap_servers: localhost:9092
-kafka_client_id: "download-client-0"
-kafka_topic: "download"
-kafka_producer_id: "download-producer-0"
-kafka_config:
-  retries: 3
-  "retry.backoff.ms": 1000
+# network config
+cert: ""
+key: ""
+ssl: false
+port: 8080
+ip: 127.0.0.1
+
+#
+# logging config
+log:
+  directory: "/var/log"
+  level: "info"
+
+#
+# download config
+download:
+  # limit the number of concurrent downloads
+  max-conc: 1
+  # files with content-length header will be downloaded in fragments
+  max-conc-fragments: 4
+  # fragments are this size if the file size is above this size
+  max-fragment-size: 5000000
+  # 1 fragment if below this size
+  min-fragment-size: 1000000
+  # max number of retries per download
+  retries: 1
+  # buffer size for the download
+  buffer-size: 81920
+  # timeout for the download
+  timeout: 0s
+  # max number of
+  redirects: 5
+  # the downloaded file is saved to this directory
+  # remember to chown user -R /var/local/download
+  directory: "/var/local/download"
+  # final path containing the file and metadata
+  # filename/id
+  path-template: "%s/%s"
+  # ownership
+  filemode: 0644
 
 #
 # local storage config
 # the path must be accessible i.e. permissions and existing...
 # chown user -R /var/local/storage
-storage_path: "/var/local/storage"
-storage_buffer_mib: 2
-storage_cache_mib: 2
-storage_compression: none
-storage_recovery: true
-
-#
-# the downloaded file is saved to this directory
-# remember to chown user -R /var/local/download
-download_directory: "/var/local/download"
-# final path containing the file and metadata
-# filename/id
-path_template: "%s/%s"
-# ownership
-filemode: 0644
+storage:
+  path: "/var/local/storage"
+  buffer-mib: 2
+  cache-mib: 2
+  compression: none
+  recovery: true
 
 #
 # prometheus config
@@ -51,3 +62,19 @@ prometheus:
   port: 2112
   model: "push"
   path: "/metrics"
+
+#
+# events config
+events:
+  # turn off event notifications for a standalone service
+  enable: true
+  #
+  # kafka config
+  kafka: 
+    bootstrap-servers: localhost:9092
+    client-id: "download-client-0"
+    topic: "download"
+    producer-id: "download-producer-0"
+    config:
+      retries: 3
+      "retry.backoff.ms": 1000
